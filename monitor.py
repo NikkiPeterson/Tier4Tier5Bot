@@ -1,16 +1,14 @@
 import os
 import re
-import time
 import requests
-from playwright.sync_api import sync_playwright
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 URL = "https://movequest.com/dashboard/hatcheries/golden"
 
-# Prevent duplicate alerts
-last_alerts = {}
+# Minimum space required before alerting
+MIN_ALERT = 0.01
 
 def send_telegram(message):
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -20,89 +18,65 @@ def send_telegram(message):
         "text": message
     }
 
-    response = requests.post(telegram_url, json=payload)
+    requests.post(telegram_url, json=payload)
 
-    print("TELEGRAM STATUS:", response.status_code)
-    print("TELEGRAM RESPONSE:", response.text)
-
-
-def extract_number(value):
-    value = value.replace(",", "").replace("K", "000")
-
-    match = re.search(r"[\d.]+", value)
+def extract_number(text):
+    text = text.replace(",", "").replace("K", "000")
+    match = re.search(r"[\d.]+", text)
 
     if match:
         return float(match.group())
 
     return 0
 
+print("CHECKING MOVEQUEST TIERS...")
 
-with sync_playwright() as p:
+headers = {
+    "User-Agent": "Mozilla/5.0"
+}
 
-    browser = p.chromium.launch(headless=True)
+response = requests.get(URL, headers=headers, timeout=30)
 
-    page = browser.new_page()
+html = response.text
 
-    print("OPENING PAGE...")
+matches = re.findall(
+    r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT\s+([\d.]+)\s+%\s+([\d.K]+)\s+MQT",
+    html,
+    re.DOTALL
+)
 
-    page.goto(URL, wait_until="networkidle", timeout=120000)
+print("MATCHES FOUND:")
+print(matches)
 
-    print("WAITING FOR CONTENT TO LOAD...")
+alerts_sent = False
 
-    time.sleep(15)
+for tier, current, percent, maximum in matches:
 
-    page_text = page.locator("body").inner_text()
+    current_value = extract_number(current)
+    max_value = extract_number(maximum)
 
-    print("\n========================")
-    print("PAGE TEXT LOADED")
-    print("========================\n")
+    remaining = max_value - current_value
 
-    print(page_text)
-
-    matches = re.findall(
-        r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT\s+([\d.]+)\s+%\s+([\dK]+)\s+MQT",
-        page_text,
-        re.DOTALL
+    print(
+        f"Tier {tier} | "
+        f"Current: {current_value} | "
+        f"Max: {max_value} | "
+        f"Remaining: {remaining}"
     )
 
-    print("\n========================")
-    print("MATCHES FOUND:")
-    print(matches)
-    print("========================\n")
+    if remaining >= MIN_ALERT:
 
-    for tier, current, percent, maximum in matches:
-
-        current_value = extract_number(current)
-        max_value = extract_number(maximum)
-
-        remaining = round(max_value - current_value, 3)
-
-        print(
-            f"Tier {tier} | "
-            f"Current: {current_value} | "
-            f"Max: {max_value} | "
-            f"Remaining: {remaining}"
+        message = (
+            f"🚨 MOVEQUEST ALERT 🚨\n\n"
+            f"Tier {tier} has space available!\n\n"
+            f"Available Space: {remaining:.3f} MQT"
         )
 
-        if remaining > 0:
+        send_telegram(message)
 
-            previous_remaining = last_alerts.get(tier)
+        print(f"ALERT SENT FOR TIER {tier}")
 
-            if previous_remaining != remaining:
+        alerts_sent = True
 
-                message = (
-                    f"🚨 MOVEQUEST ALERT 🚨\n\n"
-                    f"Tier {tier} has space available!\n\n"
-                    f"Available MQT: {remaining}"
-                )
-
-                print("\nSENDING TELEGRAM ALERT...")
-                print(message)
-
-                send_telegram(message)
-
-                last_alerts[tier] = remaining
-
-    print("\nCHECK COMPLETE")
-
-    browser.close()
+if not alerts_sent:
+    print("No tier space currently available.")

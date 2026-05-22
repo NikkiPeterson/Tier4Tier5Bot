@@ -9,10 +9,10 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 URL = "https://movequest.com/dashboard/hatcheries/golden"
 
-# Minimum amount of free space before alerting
 MIN_ALERT = 0.01
 
 def send_telegram(message):
+
     telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
     payload = {
@@ -23,6 +23,7 @@ def send_telegram(message):
     requests.post(telegram_url, json=payload)
 
 def extract_number(text):
+
     text = text.replace(",", "")
     text = text.replace("K", "000")
 
@@ -43,12 +44,10 @@ with sync_playwright() as p:
 
     page = browser.new_page()
 
-    # Block heavy resources to speed things up
+    # Block unnecessary heavy resources
     def block_resources(route):
 
-        resource_type = route.request.resource_type
-
-        if resource_type in [
+        if route.request.resource_type in [
             "image",
             "media",
             "font"
@@ -61,59 +60,75 @@ with sync_playwright() as p:
 
     page.goto(
         URL,
-        wait_until="domcontentloaded",
+        wait_until="networkidle",
         timeout=60000
     )
 
-    time.sleep(5)
+    time.sleep(8)
 
     page_text = page.locator("body").inner_text()
 
     browser.close()
 
 print("====================")
-print("PAGE TEXT:")
-print(page_text[:5000])
+print(page_text[:8000])
 
-matches = re.findall(
-    r"Tier\s*(\d)\s*Max Capacity\s*([\d,]+)\s*MQT\s*([\d.]+)\s*%\s*([\d.K]+)\s*MQT",
-    page_text,
-    re.DOTALL | re.IGNORECASE
-)
-
-print("====================")
-print("MATCHES FOUND:")
-print(matches)
+# Split text into lines
+lines = page_text.splitlines()
 
 alerts_sent = False
 
-for tier, current, percent, maximum in matches:
+for i, line in enumerate(lines):
 
-    current_value = extract_number(current)
-    max_value = extract_number(maximum)
+    line = line.strip()
 
-    remaining = max_value - current_value
+    if "Tier" in line and "Max Capacity" in line:
 
-    print(
-        f"Tier {tier} | "
-        f"Current: {current_value} | "
-        f"Max: {max_value} | "
-        f"Remaining: {remaining}"
-    )
+        try:
 
-    if remaining >= MIN_ALERT:
+            # Example:
+            # Tier 4 Max Capacity
 
-        message = (
-            f"🚨 MOVEQUEST ALERT 🚨\n\n"
-            f"Tier {tier} has space available!\n\n"
-            f"Available Space: {remaining:.3f} MQT"
-        )
+            tier_match = re.search(r"Tier\s*(\d)", line)
 
-        send_telegram(message)
+            if not tier_match:
+                continue
 
-        print(f"ALERT SENT FOR TIER {tier}")
+            tier = tier_match.group(1)
 
-        alerts_sent = True
+            current_line = lines[i + 1].strip()
+            percent_line = lines[i + 2].strip()
+            max_line = lines[i + 3].strip()
+
+            current_value = extract_number(current_line)
+            max_value = extract_number(max_line)
+
+            remaining = max_value - current_value
+
+            print("====================")
+            print(f"Tier {tier}")
+            print(f"Current: {current_value}")
+            print(f"Max: {max_value}")
+            print(f"Remaining: {remaining}")
+
+            if remaining >= MIN_ALERT:
+
+                message = (
+                    f"🚨 MOVEQUEST ALERT 🚨\n\n"
+                    f"Tier {tier} has space available!\n\n"
+                    f"Available Space: {remaining:.3f} MQT"
+                )
+
+                send_telegram(message)
+
+                print(f"ALERT SENT FOR TIER {tier}")
+
+                alerts_sent = True
+
+        except Exception as e:
+
+            print(f"ERROR PARSING TIER: {e}")
 
 if not alerts_sent:
+
     print("No tier space currently available.")

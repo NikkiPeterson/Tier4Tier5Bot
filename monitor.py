@@ -1,13 +1,15 @@
 import os
 import re
+import time
 import requests
+from playwright.sync_api import sync_playwright
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 URL = "https://movequest.com/dashboard/hatcheries/golden"
 
-# Alert if remaining space is at least this amount
+# Minimum amount of free space before alerting
 MIN_ALERT = 0.01
 
 def send_telegram(message):
@@ -21,7 +23,8 @@ def send_telegram(message):
     requests.post(telegram_url, json=payload)
 
 def extract_number(text):
-    text = text.replace(",", "").replace("K", "000")
+    text = text.replace(",", "")
+    text = text.replace("K", "000")
 
     match = re.search(r"[\d.]+", text)
 
@@ -32,24 +35,53 @@ def extract_number(text):
 
 print("CHECKING MOVEQUEST TIERS...")
 
-headers = {
-    "User-Agent": "Mozilla/5.0"
-}
+with sync_playwright() as p:
 
-response = requests.get(
-    URL,
-    headers=headers,
-    timeout=30
-)
+    browser = p.chromium.launch(
+        headless=True
+    )
 
-html = response.text
+    page = browser.new_page()
+
+    # Block heavy resources to speed things up
+    def block_resources(route):
+
+        resource_type = route.request.resource_type
+
+        if resource_type in [
+            "image",
+            "media",
+            "font"
+        ]:
+            route.abort()
+        else:
+            route.continue_()
+
+    page.route("**/*", block_resources)
+
+    page.goto(
+        URL,
+        wait_until="domcontentloaded",
+        timeout=60000
+    )
+
+    time.sleep(5)
+
+    page_text = page.locator("body").inner_text()
+
+    browser.close()
+
+print("====================")
+print("PAGE TEXT:")
+print(page_text[:5000])
 
 matches = re.findall(
-    r"Tier\s*(\d)\s*Max Capacity.*?([\d,]+)\s*MQT.*?([\d.]+)\s*%.*?([\d,.K]+)\s*MQT",
-    html,
+    r"Tier\s*(\d)\s*Max Capacity\s*([\d,]+)\s*MQT\s*([\d.]+)\s*%\s*([\d.K]+)\s*MQT",
+    page_text,
     re.DOTALL | re.IGNORECASE
 )
 
+print("====================")
 print("MATCHES FOUND:")
 print(matches)
 

@@ -7,7 +7,7 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 URL = "https://movequest.com/dashboard/hatcheries/golden"
 
-# Minimum space required before alerting
+# Alert if remaining space is at least this amount
 MIN_ALERT = 0.01
 
 def send_telegram(message):
@@ -22,6 +22,7 @@ def send_telegram(message):
 
 def extract_number(text):
     text = text.replace(",", "").replace("K", "000")
+
     match = re.search(r"[\d.]+", text)
 
     if match:
@@ -35,14 +36,18 @@ headers = {
     "User-Agent": "Mozilla/5.0"
 }
 
-response = requests.get(URL, headers=headers, timeout=30)
+response = requests.get(
+    URL,
+    headers=headers,
+    timeout=30
+)
 
 html = response.text
 
 matches = re.findall(
-    r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT\s+([\d.]+)\s+%\s+([\d.K]+)\s+MQT",
+    r"Tier\s*(\d)\s*Max Capacity.*?([\d,]+)\s*MQT.*?([\d.]+)\s*%.*?([\d,.K]+)\s*MQT",
     html,
-    re.DOTALL
+    re.DOTALL | re.IGNORECASE
 )
 
 print("MATCHES FOUND:")

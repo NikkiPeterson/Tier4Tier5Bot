@@ -1,108 +1,82 @@
-import os
-import re
-import time
 import requests
-from playwright.sync_api import sync_playwright
-
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+import re
+import os
 
 URL = "https://movequest.com/dashboard/hatcheries/golden"
 
-# Prevent duplicate alerts
-last_alerts = {}
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-def send_telegram(message):
-    telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message
+response = requests.get(
+    URL,
+    headers={
+        "User-Agent": "Mozilla/5.0"
     }
+)
 
-    response = requests.post(telegram_url, json=payload)
+text = response.text
 
-    print("TELEGRAM STATUS:", response.status_code)
-    print("TELEGRAM RESPONSE:", response.text)
+print("CHECKING MOVEQUEST TIERS...")
+print("=" * 20)
 
+pattern = re.findall(
+    r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT\s+([\d.]+)\s+%\s+([\d.K]+)\s+MQT",
+    text,
+    re.MULTILINE
+)
 
-def extract_number(value):
-    value = value.replace(",", "").replace("K", "000")
+print("MATCHES FOUND:")
+print(pattern)
 
-    match = re.search(r"[\d.]+", value)
+if not pattern:
+    print(text[:5000])
+    exit()
 
-    if match:
-        return float(match.group())
+tier_limits = {
+    "1": 15000,
+    "2": 50000,
+    "3": 100000,
+    "4": 800000,
+    "5": 50000
+}
 
-    return 0
+space_found = False
 
+for tier, current_str, percent, max_label in pattern:
 
-with sync_playwright() as p:
+    current = float(current_str.replace(",", ""))
+    max_capacity = tier_limits[tier]
+    remaining = max_capacity - current
 
-    browser = p.chromium.launch(headless=True)
+    print("=" * 20)
+    print(f"Tier {tier}")
+    print(f"Current: {current}")
+    print(f"Max: {max_capacity}")
+    print(f"Remaining: {remaining}")
 
-    page = browser.new_page()
+    if remaining > 0:
 
-    print("OPENING PAGE...")
+        space_found = True
 
-    page.goto(URL, wait_until="networkidle", timeout=120000)
-
-    print("WAITING FOR CONTENT TO LOAD...")
-
-    time.sleep(15)
-
-    page_text = page.locator("body").inner_text()
-
-    print("\n========================")
-    print("PAGE TEXT LOADED")
-    print("========================\n")
-
-    print(page_text)
-
-    matches = re.findall(
-        r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT\s+([\d.]+)\s+%\s+([\dK]+)\s+MQT",
-        page_text,
-        re.DOTALL
-    )
-
-    print("\n========================")
-    print("MATCHES FOUND:")
-    print(matches)
-    print("========================\n")
-
-    for tier, current, percent, maximum in matches:
-
-        current_value = extract_number(current)
-        max_value = extract_number(maximum)
-
-        remaining = round(max_value - current_value, 3)
-
-        print(
-            f"Tier {tier} | "
-            f"Current: {current_value} | "
-            f"Max: {max_value} | "
-            f"Remaining: {remaining}"
+        message = (
+            f"🚨 MOVEQUEST SPACE AVAILABLE 🚨\n\n"
+            f"Tier {tier}\n"
+            f"Remaining Capacity: {remaining:,.4f} MQT"
         )
 
-        if remaining > 0:
+        telegram_url = (
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        )
 
-            previous_remaining = last_alerts.get(tier)
+        requests.post(
+            telegram_url,
+            data={
+                "chat_id": CHAT_ID,
+                "text": message
+            }
+        )
 
-            if previous_remaining != remaining:
+        print(f"ALERT SENT FOR TIER {tier}")
 
-                message = (
-                    f"🚨 MOVEQUEST ALERT 🚨\n\n"
-                    f"Tier {tier} has space available!\n\n"
-                    f"Available MQT: {remaining}"
-                )
-
-                print("\nSENDING TELEGRAM ALERT...")
-                print(message)
-
-                send_telegram(message)
-
-                last_alerts[tier] = remaining
-
-    print("\nCHECK COMPLETE")
-
-    browser.close()
+if not space_found:
+    print("No tier space currently available.")

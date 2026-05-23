@@ -19,18 +19,15 @@ text = response.text
 print("CHECKING MOVEQUEST TIERS...")
 print("=" * 20)
 
-pattern = re.findall(
-    r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT\s+([\d.]+)\s+%\s+([\d.K]+)\s+MQT",
+# Much more flexible extraction
+matches = re.findall(
+    r"Tier\s*(\d).*?([\d,]+)\s*MQT.*?([\d.K]+)\s*MQT",
     text,
-    re.MULTILINE
+    re.DOTALL
 )
 
 print("MATCHES FOUND:")
-print(pattern)
-
-if not pattern:
-    print(text[:5000])
-    exit()
+print(matches)
 
 tier_limits = {
     "1": 15000,
@@ -40,11 +37,21 @@ tier_limits = {
     "5": 50000
 }
 
-space_found = False
+found_any = False
 
-for tier, current_str, percent, max_label in pattern:
+for match in matches:
 
-    current = float(current_str.replace(",", ""))
+    tier = match[0]
+    current_str = match[1]
+
+    try:
+        current = float(current_str.replace(",", ""))
+    except:
+        continue
+
+    if tier not in tier_limits:
+        continue
+
     max_capacity = tier_limits[tier]
     remaining = max_capacity - current
 
@@ -56,7 +63,7 @@ for tier, current_str, percent, max_label in pattern:
 
     if remaining > 0:
 
-        space_found = True
+        found_any = True
 
         message = (
             f"🚨 MOVEQUEST SPACE AVAILABLE 🚨\n\n"
@@ -64,12 +71,8 @@ for tier, current_str, percent, max_label in pattern:
             f"Remaining Capacity: {remaining:,.4f} MQT"
         )
 
-        telegram_url = (
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        )
-
         requests.post(
-            telegram_url,
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             data={
                 "chat_id": CHAT_ID,
                 "text": message
@@ -78,5 +81,5 @@ for tier, current_str, percent, max_label in pattern:
 
         print(f"ALERT SENT FOR TIER {tier}")
 
-if not space_found:
+if not found_any:
     print("No tier space currently available.")

@@ -19,18 +19,23 @@ tier_limits = {
 with sync_playwright() as p:
 
     browser = p.chromium.launch(
-        headless=True
+        headless=True,
+        args=[
+            "--disable-blink-features=AutomationControlled"
+        ]
     )
 
-    page = browser.new_page()
+    context = browser.new_context(
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        viewport={"width": 1400, "height": 1200}
+    )
+
+    page = context.new_page()
 
     page.goto(URL, timeout=120000)
 
-    # WAIT UNTIL TIER TEXT EXISTS
-    page.wait_for_selector("text=Tier 1 Max Capacity", timeout=120000)
-
-    # Extra safety wait
-    page.wait_for_timeout(5000)
+    # LONGER WAIT
+    page.wait_for_timeout(15000)
 
     text = page.locator("body").inner_text()
 
@@ -38,8 +43,6 @@ with sync_playwright() as p:
 
 print("CHECKING MOVEQUEST TIERS...")
 print("=" * 20)
-
-print(text[:5000])
 
 matches = re.findall(
     r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT",

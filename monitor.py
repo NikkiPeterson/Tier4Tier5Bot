@@ -19,15 +19,17 @@ text = response.text
 print("CHECKING MOVEQUEST TIERS...")
 print("=" * 20)
 
-# Much more flexible extraction
-matches = re.findall(
-    r"Tier\s*(\d).*?([\d,]+)\s*MQT.*?([\d.K]+)\s*MQT",
-    text,
-    re.DOTALL
+# Print first chunk for debugging
+print(text[:15000])
+
+# Exact structure from live page text
+pattern = re.findall(
+    r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT",
+    text
 )
 
 print("MATCHES FOUND:")
-print(matches)
+print(pattern)
 
 tier_limits = {
     "1": 15000,
@@ -39,20 +41,12 @@ tier_limits = {
 
 found_any = False
 
-for match in matches:
+for tier, current_str in pattern:
 
-    tier = match[0]
-    current_str = match[1]
-
-    try:
-        current = float(current_str.replace(",", ""))
-    except:
-        continue
-
-    if tier not in tier_limits:
-        continue
+    current = float(current_str.replace(",", ""))
 
     max_capacity = tier_limits[tier]
+
     remaining = max_capacity - current
 
     print("=" * 20)
@@ -71,7 +65,7 @@ for match in matches:
             f"Remaining Capacity: {remaining:,.4f} MQT"
         )
 
-        requests.post(
+        result = requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             data={
                 "chat_id": CHAT_ID,
@@ -79,6 +73,7 @@ for match in matches:
             }
         )
 
+        print(result.text)
         print(f"ALERT SENT FOR TIER {tier}")
 
 if not found_any:

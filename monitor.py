@@ -1,35 +1,12 @@
+from playwright.sync_api import sync_playwright
 import requests
 import re
 import os
 
-URL = "https://movequest.com/dashboard/hatcheries/golden"
-
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-response = requests.get(
-    URL,
-    headers={
-        "User-Agent": "Mozilla/5.0"
-    }
-)
-
-text = response.text
-
-print("CHECKING MOVEQUEST TIERS...")
-print("=" * 20)
-
-# Print first chunk for debugging
-print(text[:15000])
-
-# Exact structure from live page text
-pattern = re.findall(
-    r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT",
-    text
-)
-
-print("MATCHES FOUND:")
-print(pattern)
+URL = "https://movequest.com/dashboard/hatcheries/golden"
 
 tier_limits = {
     "1": 15000,
@@ -39,9 +16,34 @@ tier_limits = {
     "5": 50000
 }
 
+with sync_playwright() as p:
+
+    browser = p.chromium.launch(headless=True)
+
+    page = browser.new_page()
+
+    page.goto(URL, timeout=120000)
+
+    page.wait_for_timeout(10000)
+
+    text = page.locator("body").inner_text()
+
+    browser.close()
+
+print("CHECKING MOVEQUEST TIERS...")
+print("=" * 20)
+
+matches = re.findall(
+    r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT",
+    text
+)
+
+print("MATCHES FOUND:")
+print(matches)
+
 found_any = False
 
-for tier, current_str in pattern:
+for tier, current_str in matches:
 
     current = float(current_str.replace(",", ""))
 
@@ -65,7 +67,7 @@ for tier, current_str in pattern:
             f"Remaining Capacity: {remaining:,.4f} MQT"
         )
 
-        result = requests.post(
+        requests.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             data={
                 "chat_id": CHAT_ID,
@@ -73,7 +75,6 @@ for tier, current_str in pattern:
             }
         )
 
-        print(result.text)
         print(f"ALERT SENT FOR TIER {tier}")
 
 if not found_any:

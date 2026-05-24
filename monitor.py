@@ -1,6 +1,5 @@
 from playwright.sync_api import sync_playwright
 import requests
-import re
 import os
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -20,73 +19,97 @@ with sync_playwright() as p:
 
     browser = p.chromium.launch(
         headless=True,
-        args=[
-            "--disable-blink-features=AutomationControlled"
-        ]
+        args=["--disable-blink-features=AutomationControlled"]
     )
 
     context = browser.new_context(
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        viewport={"width": 1400, "height": 1200}
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     )
 
     page = context.new_page()
 
     page.goto(URL, timeout=120000)
 
-    # LONGER WAIT
-    page.wait_for_timeout(15000)
+    # wait for full render
+    page.wait_for_timeout(20000)
 
-    text = page.locator("body").inner_text()
+    cards = page.locator("text=Max Capacity").all_inner_texts()
 
     browser.close()
 
 print("CHECKING MOVEQUEST TIERS...")
 print("=" * 20)
 
-matches = re.findall(
-    r"Tier\s+(\d)\s+Max Capacity\s+([\d,]+)\s+MQT",
-    text
-)
-
-print("MATCHES FOUND:")
-print(matches)
+print("CARDS FOUND:")
+print(cards)
 
 found_any = False
 
-for tier, current_str in matches:
+for card in cards:
 
-    current = float(current_str.replace(",", ""))
+    try:
 
-    max_capacity = tier_limits[tier]
+        lines = card.splitlines()
 
-    remaining = max_capacity - current
+        tier = None
+        current = None
 
-    print("=" * 20)
-    print(f"Tier {tier}")
-    print(f"Current: {current}")
-    print(f"Max: {max_capacity}")
-    print(f"Remaining: {remaining}")
+        for line in lines:
 
-    if remaining > 0:
+            line = line.strip()
 
-        found_any = True
+            if line.startswith("Tier"):
+                tier = line.replace("Tier", "").strip()
 
-        message = (
-            f"🚨 MOVEQUEST SPACE AVAILABLE 🚨\n\n"
-            f"Tier {tier}\n"
-            f"Remaining Capacity: {remaining:,.4f} MQT"
-        )
+            if "MQT" in line and "," in line:
 
-        requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            data={
-                "chat_id": CHAT_ID,
-                "text": message
-            }
-        )
+                number = (
+                    line.replace("MQT", "")
+                    .replace(",", "")
+                    .strip()
+                )
 
-        print(f"ALERT SENT FOR TIER {tier}")
+                value = float(number)
+
+                # ignore max values
+                if value < 900000:
+                    current = value
+                    break
+
+        if tier and current is not None:
+
+            max_capacity = tier_limits[tier]
+
+            remaining = max_capacity - current
+
+            print("=" * 20)
+            print(f"Tier {tier}")
+            print(f"Current: {current}")
+            print(f"Max: {max_capacity}")
+            print(f"Remaining: {remaining}")
+
+            if remaining > 0:
+
+                found_any = True
+
+                message = (
+                    f"🚨 MOVEQUEST SPACE AVAILABLE 🚨\n\n"
+                    f"Tier {tier}\n"
+                    f"Remaining Capacity: {remaining:,.4f} MQT"
+                )
+
+                requests.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    data={
+                        "chat_id": CHAT_ID,
+                        "text": message
+                    }
+                )
+
+                print(f"ALERT SENT FOR TIER {tier}")
+
+    except Exception as e:
+        print("ERROR PARSING CARD:", e)
 
 if not found_any:
     print("No tier space currently available.")
